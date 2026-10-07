@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Berenberg Lending Tool · Securities Lending & Collateral Cockpit</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="js/tailwind.config.js"></script>
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="data/database-seed.js" defer></script>
+  <script src="js/database/database.js" defer></script>
+  <script src="js/attachments.js" defer></script>
+  <script src="js/vendor/xlsx.full.min.js" defer></script>
+  <script src="js/phx-import.js" defer></script>
+  <script src="js/app.js" defer></script>
+  <script src="js/loan-layout.js" defer></script>
+</head>
+<body class="app-shell">
+
+  <dialog id="loan-layout-dialog" class="loan-layout-dialog" aria-labelledby="loan-layout-title">
+    <div class="loan-layout-heading"><h2 id="loan-layout-title">Customize loan layout</h2><button type="button" id="close-loan-layout" aria-label="Close layout settings">✕</button></div>
+    <p>Drag columns to reorder, or use the arrow buttons. Uncheck columns to hide them. Changes apply immediately.</p>
+    <ol id="loan-layout-columns"></ol>
+    <p id="loan-layout-feedback" role="status" aria-live="polite"></p>
+    <div class="loan-layout-footer"><button type="button" id="reset-loan-layout">Reset layout</button><button type="button" id="done-loan-layout">Done</button></div>
+  </dialog>
+
+  <!-- TOP HEADER (ISS/CBL BRANDING) -->
+  <header class="bg-white border-b border-slate-200 px-6 py-3 shrink-0 shadow-sm flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-blue-700 flex items-center justify-center text-white shadow-md shadow-blue-700/20">
+        <i class="fas fa-layer-group text-base"></i>
+      </div>
+      <div>
+        <div class="text-[10px] font-bold tracking-widest text-blue-700 uppercase">Securities Lending & Collateral Automation</div>
+        <h1 class="text-base font-bold text-slate-800 leading-tight">Lending Tool · Settlement & Operations Cockpit</h1>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <div id="phx-date-indicator" class="flex items-center gap-2 bg-slate-100 text-slate-700 px-3 py-1 rounded-full border border-slate-300 text-xs font-mono font-semibold">
+        <i class="fas fa-calendar-day text-blue-600"></i> PHX prices as of: <span id="current-phx-date">28 Sep 2026</span>
+      </div>
+      <div class="flex items-center gap-2 border-l border-slate-200 pl-4 text-xs text-slate-600">
+        <div class="w-7 h-7 rounded-full bg-slate-200 font-bold text-slate-700 flex items-center justify-center text-[11px]">DM</div>
+        <div>
+          <div class="font-semibold text-slate-800">Demo Operator</div>
+          <div class="text-[10px] text-slate-400">Operations (Settlement)</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- NAVIGATION TABS -->
+  <nav class="bg-slate-900 text-white px-6 flex justify-between items-center shadow-inner shrink-0">
+    <div class="flex space-x-1 text-xs font-medium">
+      <button data-on-click="switch-tab" data-tab="active-loans" id="tab-btn-active-loans" class="tab-btn px-4 py-3 border-b-2 border-blue-500 text-white bg-slate-800/80 flex items-center gap-2">
+        <i class="fas fa-table-list text-blue-400"></i> Loans (<span id="nav-loan-count">0</span>)
+      </button>
+      <button data-on-click="switch-tab" data-tab="collateral" id="tab-btn-collateral" class="tab-btn px-4 py-3 border-b-2 border-transparent text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2">
+        <i class="fas fa-scale-balanced text-emerald-400"></i> Collateral
+      </button>
+      <button data-on-click="switch-tab" data-tab="regulatory" id="tab-btn-regulatory" class="tab-btn px-4 py-3 border-b-2 border-transparent text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2">
+        <i class="fas fa-shield-halved text-indigo-400"></i> Regulatory Reporting
+      </button>
+    </div>
+
+  </nav>
+
+  <!-- MAIN VIEWPORT -->
+  <main class="flex-1 p-6 overflow-y-auto">
+
+    <!-- TAB 1: ACTIVE LOANS & SETTLEMENT COCKPIT -->
+    <section id="tab-active-loans" class="tab-content flex flex-col gap-4">
+      <!-- Filter Bar -->
+      <div class="loan-filters bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-3 items-end text-xs">
+        <div>
+          <label for="filter-counterparty" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Counterparty</label>
+          <select id="filter-counterparty" data-on-change="filter-trades" class="bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-medium text-slate-800">
+            <option value="ALL">All counterparties (6)</option>
+            <option value="DEMO-1">Demo Counterparty 1</option>
+            <option value="DEMO-2">Demo Counterparty 2</option>
+            <option value="DEMO-3">Demo Counterparty 3</option>
+            <option value="DEMO-4">Demo Counterparty 4</option>
+            <option value="DEMO-5">Demo Counterparty 5</option>
+            <option value="DEMO-6">Demo Counterparty 6</option>
+          </select>
+        </div>
+        <div>
+          <label for="filter-status" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Status</label>
+          <select id="filter-status" data-on-change="filter-trades" class="bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-medium text-slate-800">
+            <option value="OPEN" selected>Open</option>
+            <option value="CLOSED">Closed</option>
+          </select>
+        </div>
+        <div>
+          <label for="filter-search" class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Search (MO ID / ISIN / Name)</label>
+          <input type="text" id="filter-search" data-on-input="filter-trades" placeholder="Search loans…" class="bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 w-48 text-slate-800" />
+        </div>
+        <div class="ml-auto flex gap-2">
+          <button data-on-click="open-ticket-modal" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded shadow-sm flex items-center gap-1.5">
+            <i class="fas fa-plus"></i> Add loan
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Trade Table -->
+      <div class="loan-list bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center text-xs">
+          <div class="font-bold text-slate-700 flex items-center gap-2">
+            <i class="fas fa-list-check text-blue-600"></i> Securities loans
+          </div>
+          <div class="loan-list-tools"><div id="trade-count-badge" class="text-slate-600">Connecting…</div><button type="button" id="open-loan-layout" class="loan-layout-button" aria-haspopup="dialog"><i class="fas fa-sliders" aria-hidden="true"></i> Layout</button></div>
+        </div>
+
+        <div class="loan-table-wrap">
+          <table class="loan-table w-full text-left border-collapse" aria-label="Securities loans">
+            <thead id="loan-table-head">
+              <tr class="text-[10px] font-bold text-slate-500 border-b border-slate-200 uppercase bg-slate-50/70">
+                <th scope="col" class="p-3" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="id">MO ID <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="counterparty">Counterparty <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="security">ISIN / Security <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-right" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="quantity">Quantity <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-right" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="opening">Opening Price <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-right" aria-sort="none" title="Quantity × opening price × annual rate / 100 / 365"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="commission">Commission / day <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-right" aria-sort="none" title="From value date through today, including weekends; opening price, 365-day basis"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="commissionTotal">Total commission <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-right" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="current">Current Price (PHX) <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-right" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="exposure">Current Exposure (+5%) <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="dates">Trade / Value Date <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-center" aria-sort="none"><button type="button" class="loan-sort-button" data-on-click="sort-loans" data-sort-column="status">Status <span class="loan-sort-indicator" aria-hidden="true">↕</span></button></th>
+                <th scope="col" class="p-3 text-right">Close</th>
+              </tr>
+            </thead>
+            <tbody id="trades-tbody" class="divide-y divide-slate-100">
+              <!-- Dynamically populated via JavaScript -->
+            </tbody>
+          </table>
+        </div>
+        <div class="loan-pagination">
+          <div class="loan-page-size">
+            <label for="loan-page-size">Loans per page</label>
+            <select id="loan-page-size" data-on-change="loan-page-size">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <p id="loan-page-summary" role="status" aria-live="polite" aria-atomic="true"></p>
+          <div class="loan-page-buttons" role="group" aria-label="Loan list pages">
+            <button type="button" id="loan-page-prev" data-on-click="loan-page-prev" disabled><i class="fas fa-chevron-left" aria-hidden="true"></i> Previous</button>
+            <button type="button" id="loan-page-next" data-on-click="loan-page-next" disabled>Next <i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: LIVE COLLATERAL & EXPOSURE MONITOR -->
+    <section id="tab-collateral" class="tab-content hidden flex flex-col gap-4">
+      <div class="grid grid-cols-12 gap-5">
+
+        <!-- Collateral Status Matrix -->
+        <div class="col-span-12 bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
+              <div>
+                <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <i class="fas fa-scale-balanced text-emerald-600"></i> Counterparty Exposure vs. Collateral Held
+                </h3>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  Calculated directly from active loans (quantity × current PHX price × 1.05) and compared with actual collateral held (as recorded in the exposure file).
+                </p>
+              </div>
+              <div class="flex gap-2">
+                <button type="button" data-on-click="open-prices-modal" aria-haspopup="dialog" class="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                  <i class="fas fa-file-csv"></i> Import new PHX prices
+                </button>
+              </div>
+            </div>
+
+            <table class="w-full text-left text-xs border-collapse font-mono">
+              <thead>
+                <tr class="text-[10px] font-bold text-slate-500 border-b border-slate-200 uppercase bg-slate-50">
+                  <th class="p-3">Counterparty</th>
+                  <th class="p-3">Collateral Type</th>
+                  <th class="p-3 text-right">Active Loans</th>
+                  <th class="p-3 text-right">Loan Exposure (+5%)</th>
+                  <th class="p-3 text-right">Collateral Held</th>
+                  <th class="p-3 text-right">Collateral Difference</th>
+                  <th class="p-3 text-right">Threshold</th>
+                  <th class="p-3 text-center">Status</th>
+                  <th class="p-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody id="collateral-matrix-tbody" class="divide-y divide-slate-100 text-xs">
+                <!-- Dynamically recalculated and populated via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between items-center">
+            <span>Rules: <strong>Red amounts</strong> = the counterparty must deliver collateral to BEGO (request a margin call). <strong>Green amounts</strong> = BEGO must release collateral.</span>
+            <span class="font-bold text-slate-700">Daily monitoring using monthly and threshold rules</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- TAB 5: REGULATORY HUB (SFTR / AWV) -->
+    <section id="tab-regulatory" class="tab-content hidden flex flex-col gap-4">
+      <div class="grid grid-cols-2 gap-5">
+
+        <!-- Regis-TR SFTR Reporting Centre -->
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+              <div class="flex items-center gap-2 text-indigo-700 font-bold text-sm">
+                <i class="fas fa-file-code"></i>
+                <h3>Regis-TR SFTR Reports (ISO 20022 XML)</h3>
+              </div>
+              <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">Whitespace = 0 OK</span>
+            </div>
+
+            <p class="text-xs text-slate-600 mb-3">
+              Automated generation and validation of reportable records for T+1 upload to Regis-TR:
+            </p>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
+                <div>
+                  <span class="font-bold text-emerald-700 font-mono block">NEWT</span>
+                  <span class="text-[10px] text-slate-500">New Loans</span>
+                </div>
+                <button data-on-click="download-xml-payload" data-type="NEWT" class="bg-white hover:bg-slate-100 border border-slate-300 text-[11px] font-semibold px-2 py-1 rounded shadow-sm">XML Export</button>
+              </div>
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
+                <div>
+                  <span class="font-bold text-amber-700 font-mono block">MODI</span>
+                  <span class="text-[10px] text-slate-500">Partial Returns</span>
+                </div>
+                <button data-on-click="download-xml-payload" data-type="MODI" class="bg-white hover:bg-slate-100 border border-slate-300 text-[11px] font-semibold px-2 py-1 rounded shadow-sm">XML Export</button>
+              </div>
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
+                <div>
+                  <span class="font-bold text-blue-700 font-mono block">ETRM</span>
+                  <span class="text-[10px] text-slate-500">Full Returns</span>
+                </div>
+                <button data-on-click="download-xml-payload" data-type="ETRM" class="bg-white hover:bg-slate-100 border border-slate-300 text-[11px] font-semibold px-2 py-1 rounded shadow-sm">XML Export</button>
+              </div>
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
+                <div>
+                  <span class="font-bold text-rose-700 font-mono block">EROR</span>
+                  <span class="text-[10px] text-slate-500">Same-day Cancellations</span>
+                </div>
+                <button data-on-click="download-xml-payload" data-type="EROR" class="bg-white hover:bg-slate-100 border border-slate-300 text-[11px] font-semibold px-2 py-1 rounded shadow-sm">XML Export</button>
+              </div>
+            </div>
+          </div>
+
+          <button data-on-click="submit-sftr-batch" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-lg text-xs shadow-md shadow-indigo-600/20 flex items-center justify-center gap-1.5 mt-4">
+            <i class="fas fa-cloud-arrow-up"></i> Submit daily SFTR batch to Regis-TR
+          </button>
+        </div>
+
+        <!-- AWV & Tax Compliance -->
+        <div class="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+              <div class="flex items-center gap-2 text-teal-700 font-bold text-sm">
+                <i class="fas fa-building-columns"></i>
+                <h3>AWV Reporting & Deutsche Bundesbank</h3>
+              </div>
+              <span class="bg-teal-50 text-teal-800 text-[10px] font-bold px-2 py-0.5 rounded border border-teal-200">Monthly</span>
+            </div>
+
+            <p class="text-xs text-slate-600 mb-3">
+              Automatic identification of securities lending fee payments to other European countries (&gt; €50.000):
+            </p>
+
+            <div class="space-y-2 text-xs">
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
+                <div>
+                  <div class="font-bold text-slate-800">AWV Z14 Report (Income &gt; 50k)</div>
+                  <div class="text-[10px] text-slate-500">Status: No reportable incoming payments (nil return)</div>
+                </div>
+                <button data-on-click="export-z14" class="bg-teal-600 hover:bg-teal-700 text-white font-bold px-3 py-1 rounded text-xs">Export CSV</button>
+              </div>
+
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
+                <div>
+                  <div class="font-bold text-slate-800">AWV Z15 Report (Expenses &gt; 50k)</div>
+                  <div class="text-[10px] text-slate-500">1 demo payment identified</div>
+                </div>
+                <button data-on-click="export-z15" class="bg-teal-600 hover:bg-teal-700 text-white font-bold px-3 py-1 rounded text-xs">Export CSV</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-2 mt-4">
+            <i class="fas fa-circle-check text-emerald-600"></i> All data meets ESMA & Bundesbank validation rules.
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <dialog id="prices-modal" class="ticket-modal" aria-labelledby="prices-modal-title" aria-describedby="prices-modal-description">
+    <div class="ticket-modal-shell">
+      <div class="ticket-modal-header">
+        <div>
+          <h2 id="prices-modal-title" class="text-base font-bold text-slate-800">Market Prices</h2>
+          <p id="prices-modal-description" class="text-xs text-slate-500 mt-1">Upload XLSX to update prices and collateral.</p>
+        </div>
+        <button type="button" data-on-click="close-prices-modal" class="ticket-modal-close" aria-label="Close market prices window">
+          <i class="fas fa-xmark" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div id="prices-modal-body" class="ticket-modal-body prices-modal-body">
+      <div id="market-prices-content" class="grid grid-cols-12 gap-5">
+
+        <!-- Left: Upload & Paste Zone -->
+        <div class="col-span-6 bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
+              <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <i class="fas fa-cloud-arrow-up text-sky-600"></i> Import PHX
+              </h3>
+            </div>
+
+            <div id="phx-dropzone" class="ticket-dropzone phx-dropzone" aria-label="PHX XLSX upload">
+              <i class="fas fa-file-excel text-emerald-600" aria-hidden="true"></i>
+              <p class="text-xs font-semibold text-slate-700 mt-2">Drop XLSX here</p>
+              <button type="button" id="choose-phx-file" class="mt-3 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 text-xs font-semibold">Choose file</button>
+              <input type="file" id="phx-file-input" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+              <p class="text-[11px] text-slate-500 mt-2">.xlsx only · up to 10 MB</p>
+            </div>
+            <p id="phx-file-status" class="text-xs text-slate-600 mt-3 break-words" role="status" aria-live="polite"></p>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-100 flex justify-end gap-2">
+            <button type="button" id="clear-phx-file" disabled class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold">Clear</button>
+            <button type="button" id="import-phx-file" disabled data-on-click="process-phx-data" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-md shadow-blue-600/20 flex items-center gap-1.5">
+              <i class="fas fa-arrows-rotate"></i> Import prices
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Extracted Price Feed Table -->
+        <div class="col-span-6 bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
+              <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                <i class="fas fa-coins text-amber-500"></i> Current prices
+              </h3>
+              <span id="price-table-count" class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">3 securities loaded</span>
+            </div>
+
+            <table class="w-full text-left text-xs border-collapse font-mono">
+              <thead>
+                <tr class="text-[10px] font-bold text-slate-500 border-b border-slate-200 uppercase bg-slate-50">
+                  <th class="p-2">ISIN</th>
+                  <th class="p-2">Security</th>
+                  <th class="p-2">Currency</th>
+                  <th class="p-2 text-right">Price</th>
+                  <th class="p-2 text-center">Price Date</th>
+                </tr>
+              </thead>
+              <tbody id="phx-prices-tbody" class="divide-y divide-slate-100 text-xs">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+
+      </div>
+      </div>
+      <div class="ticket-modal-footer">
+        <button type="button" data-on-click="close-prices-modal" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ADD LOAN: TICKET ENTRY ON ACTIVE LOANS -->
+  <dialog id="ticket-modal" class="ticket-modal" aria-labelledby="ticket-modal-title" aria-describedby="ticket-modal-description">
+    <div class="ticket-modal-shell">
+      <div class="ticket-modal-header">
+        <div>
+          <h2 id="ticket-modal-title" class="text-base font-bold text-slate-800">Add loan</h2>
+          <p id="ticket-modal-description" class="text-xs text-slate-500 mt-1">Paste a ticket or drop files, review the details and add the loan to Loans.</p>
+        </div>
+        <button type="button" data-on-click="close-ticket-modal" class="ticket-modal-close" aria-label="Close add loan window">
+          <i class="fas fa-xmark" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="ticket-modal-body">
+        <aside class="ticket-modal-source flex flex-col gap-4" aria-label="Ticket and file upload">
+          <section class="bg-white rounded-xl p-5 border-2 border-dashed border-blue-300 shadow-sm" aria-labelledby="ticket-source-title">
+            <h3 id="ticket-source-title" class="text-xs font-bold text-blue-700 uppercase flex items-center gap-1.5 mb-2">
+              <i class="fas fa-file-import" aria-hidden="true"></i> Middle Office ticket
+            </h3>
+            <p id="ticket-input-help" class="text-xs text-slate-500 mb-3">Paste the email text to populate the loan details.</p>
+            <textarea id="ticket-input" aria-label="Middle Office ticket text" aria-describedby="ticket-input-help" autofocus rows="7" placeholder="Paste ticket text here" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+            <button type="button" data-on-click="parse-ticket" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-xs shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 mt-3">
+              <i class="fas fa-bolt" aria-hidden="true"></i> Parse ticket
+            </button>
+          </section>
+            <div id="ticket-dropzone" class="ticket-dropzone">
+              <i class="fas fa-cloud-arrow-up text-blue-600" aria-hidden="true"></i>
+              <p class="text-xs font-semibold text-slate-700 mt-2">Drop emails or files into this window</p>
+              <p class="text-xs text-slate-500 mt-1">.eml text is extracted automatically. All file types can be attached.</p>
+              <button type="button" id="choose-loan-files-btn" data-on-click="choose-loan-files" class="mt-3 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 text-xs font-semibold">Choose files</button>
+              <input type="file" id="loan-file-input" multiple hidden />
+              <p class="text-[11px] text-slate-500 mt-2">Up to 10 MB per file · 25 MB total</p>
+            </div>
+
+          <section class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm" aria-labelledby="ticket-attachments-title">
+            <div class="ticket-modal-card-heading mb-2">
+              <h3 id="ticket-attachments-title" class="text-xs font-bold text-slate-800 uppercase">Attachments</h3>
+              <span id="attachment-count" class="text-xs text-slate-500">0 files</span>
+            </div>
+            <div id="attachment-feedback" class="attachment-feedback" data-state="idle">
+              <span class="attachment-feedback-icon" aria-hidden="true">
+                <i class="fas fa-circle-notch attachment-loading-icon"></i>
+                <svg class="attachment-success-icon" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10"/><path d="m7 12 3 3 7-7"/></svg>
+                <i class="fas fa-circle-exclamation attachment-error-icon"></i>
+              </span>
+              <p id="attachment-status" role="status" class="text-xs">Attached files are saved with the loan.</p>
+            </div>
+            <div class="attachment-upload-progress" aria-hidden="true"><span></span></div>
+            <ul id="attachment-list" class="attachment-list mt-3" aria-busy="false"></ul>
+          </section>
+        </aside>
+
+        <section class="ticket-modal-preview bg-white rounded-xl p-5 border border-slate-200 shadow-sm" aria-labelledby="ticket-details-title">
+          <div class="ticket-modal-details-heading">
+            <div>
+              <h3 id="ticket-details-title" class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fas fa-clipboard-check text-emerald-600" aria-hidden="true"></i> Loan details
+              </h3>
+              <p id="loan-details-help" class="text-xs text-slate-500 mt-1">Review and edit the ticket values before adding the loan.</p>
+            </div>
+            <span id="enrichment-status" role="status" class="bg-slate-100 text-slate-600 text-xs font-bold px-2.5 py-1 rounded-full border border-slate-200">No data</span>
+          </div>
+          <form id="loan-details-form" class="ticket-modal-form" aria-describedby="loan-details-help">
+              <fieldset class="ticket-modal-group">
+                <legend class="ticket-modal-group-title">Trade & security</legend>
+                <div class="ticket-modal-fields grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label for="form-mo-id" class="block text-[10px] font-bold text-slate-500 uppercase">MO ID</label>
+                  <input type="text" id="form-mo-id" required pattern="[0-9]+" class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-mono font-bold text-slate-800" />
+                </div>
+                <div>
+                  <label for="form-counterparty" class="block text-[10px] font-bold text-slate-500 uppercase">Counterparty</label>
+                  <select id="form-counterparty" required class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-semibold text-slate-800">
+                    <option value="DEMO-1">Demo Counterparty 1</option>
+                    <option value="DEMO-2">Demo Counterparty 2</option>
+                    <option value="DEMO-3">Demo Counterparty 3</option>
+                    <option value="DEMO-4">Demo Counterparty 4</option>
+                    <option value="DEMO-5">Demo Counterparty 5</option>
+                    <option value="DEMO-6">Demo Counterparty 6</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="form-isin" class="block text-[10px] font-bold text-slate-500 uppercase">ISIN</label>
+                  <input type="text" id="form-isin" required minlength="12" maxlength="12" pattern="[A-Za-z]{2}[A-Za-z0-9]{9}[0-9]" class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-mono font-bold text-slate-800" />
+                </div>
+                <div>
+                  <label for="form-stock-name" class="block text-[10px] font-bold text-slate-500 uppercase">Security Name</label>
+                  <input type="text" id="form-stock-name" required class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-semibold text-slate-800" />
+                </div>
+                </div>
+              </fieldset>
+              <fieldset class="ticket-modal-group">
+                <legend class="ticket-modal-group-title">Loan terms</legend>
+                <div class="ticket-modal-fields grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label for="form-shares" class="block text-[10px] font-bold text-slate-500 uppercase">Quantity (Shares)</label>
+                  <input type="number" id="form-shares" required min="1" step="1" class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-mono font-bold text-slate-800" />
+                </div>
+                <div>
+                  <label for="form-comm" class="block text-[10px] font-bold text-slate-500 uppercase">Commission (% p.a.)</label>
+                  <input type="text" id="form-comm" required class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-mono font-bold text-amber-600" />
+                </div>
+                <div>
+                  <label for="form-price" class="block text-[10px] font-bold text-slate-500 uppercase">Opening Price</label>
+                  <input type="number" id="form-price" required min="0.00000001" step="any" class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-mono font-bold text-slate-800" />
+                </div>
+                <div>
+                  <label for="form-currency" class="block text-[10px] font-bold text-slate-500 uppercase">Currency</label>
+                  <input type="text" id="form-currency" required minlength="3" maxlength="3" pattern="[A-Za-z]{3}" class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 font-mono font-bold text-slate-800" />
+                </div>
+                </div>
+              </fieldset>
+              <fieldset class="ticket-modal-group">
+                <legend class="ticket-modal-group-title">Dates</legend>
+                <div class="ticket-modal-fields grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label for="form-trade-date" class="block text-[10px] font-bold text-slate-500 uppercase">Trade Date</label>
+                  <input type="date" id="form-trade-date" required class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800" />
+                </div>
+                <div>
+                  <label for="form-value-date" class="block text-[10px] font-bold text-slate-500 uppercase">Value Date</label>
+                  <input type="date" id="form-value-date" required class="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800" />
+                </div>
+                </div>
+              </fieldset>
+          </form>
+          <section class="ticket-modal-support" aria-labelledby="ticket-reference-title">
+            <h3 id="ticket-reference-title" class="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5 mb-2">
+              <i class="fas fa-database text-blue-600" aria-hidden="true"></i> Reference data
+            </h3>
+            <div class="ticket-modal-reference-fields grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <h4 class="block text-[10px] font-bold text-slate-500 uppercase">WPS Reference Data · CFI / LEI / Country</h4>
+                <p class="mt-1 bg-blue-50 border border-blue-200 rounded px-2.5 py-1.5 text-blue-900 font-medium">A separate tool will be connected.</p>
+              </div>
+              <div>
+                <h4 class="block text-[10px] font-bold text-slate-500 uppercase">SFTR Type / Quality</h4>
+                <p class="mt-1 bg-blue-50 border border-blue-200 rounded px-2.5 py-1.5 text-blue-900 font-medium">A separate tool will be connected.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="ftt-card" class="ticket-modal-support" aria-labelledby="ticket-check-title">
+            <div class="ticket-modal-card-heading mb-2">
+              <h3 id="ticket-check-title" class="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5">
+                <i class="fas fa-shield-halved text-blue-600" aria-hidden="true"></i> FTT & WM Data Check
+              </h3>
+              <span id="ftt-badge" class="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded">Demo</span>
+            </div>
+            <p id="ftt-desc" class="text-xs text-slate-500 leading-relaxed">Demo only. In the future, this check will connect to an external application.</p>
+          </section>
+
+        </section>
+      </div>
+      <div class="ticket-modal-footer">
+        <button data-on-click="close-ticket-modal" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">
+          Cancel
+        </button>
+        <button id="book-btn" disabled data-on-click="execute-wps-booking" class="px-6 py-2 bg-slate-300 text-slate-500 rounded-lg text-xs font-bold shadow flex items-center gap-1.5 cursor-not-allowed">
+          <i class="fas fa-check"></i> Add loan
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- MODAL 1: LIFECYCLE ACTION -->
+  <dialog id="loan-details-dialog" class="loan-details-dialog" aria-labelledby="loan-details-title" aria-describedby="loan-details-subtitle">
+    <div class="loan-details-shell">
+      <header class="loan-details-header">
+        <div>
+          <h2 id="loan-details-title">Loan details</h2>
+          <p id="loan-details-subtitle"></p>
+        </div>
+        <button type="button" data-on-click="dismiss-loan-details" aria-label="Close loan details" autofocus><i class="fas fa-xmark" aria-hidden="true"></i></button>
+      </header>
+      <input type="file" id="loan-detail-file-input" multiple hidden aria-label="Add files to this loan">
+      <div id="loan-details-content" class="loan-details-content"></div>
+      <footer class="loan-details-footer"><p id="loan-detail-file-status" role="status" aria-live="polite" aria-atomic="true"></p><button type="button" data-on-click="dismiss-loan-details">Done</button></footer>
+    </div>
+  </dialog>
+
+  <dialog id="close-loan-dialog" class="close-loan-dialog" aria-labelledby="close-loan-title" aria-describedby="close-loan-description">
+    <h2 id="close-loan-title">Close loan?</h2>
+    <p id="close-loan-description">The full quantity will be returned. The loan status will change to Closed and its exposure will be removed from active collateral calculations. View it in Loans by selecting Status → Closed.</p>
+    <dl id="close-loan-details"></dl>
+    <div class="close-loan-buttons">
+      <button type="button" data-on-click="dismiss-close-loan" autofocus>Keep open</button>
+      <button type="button" id="confirm-close-loan" data-on-click="confirm-close-loan">Close loan</button>
+    </div>
+  </dialog>
+
+  <div id="lifecycle-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 flex flex-col gap-4">
+      <div class="flex justify-between items-center pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+            <i class="fas fa-sliders"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-800 text-sm">Loan Lifecycle Action</h3>
+            <span id="lifecycle-modal-subtitle" class="text-xs text-slate-400">Trade ID: #2627</span>
+          </div>
+        </div>
+        <button data-on-click="close-modal" data-modal="lifecycle-modal" class="text-slate-400 hover:text-slate-600">
+          <i class="fas fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-600 mb-1">Select action type:</label>
+          <select id="lifecycle-action-type" data-on-change="toggle-lifecycle-fields" class="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 font-semibold">
+            <option value="RETURN">1. Full Return</option>
+            <option value="PARTIAL">2. Partial Return</option>
+            <option value="CONFIRMATION">3. Resend Confirmation Document</option>
+            <option value="CANCEL">4. Cancellation (Pre-Settlement)</option>
+          </select>
+        </div>
+
+        <div id="partial-return-field" class="hidden">
+          <label class="block font-bold text-slate-600 mb-1">Return Quantity (Partial Return):</label>
+          <input type="number" id="partial-return-nominal" placeholder="e.g. 5000" class="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 font-mono font-bold" />
+          <span class="text-[11px] text-slate-400 mt-1 block">The tool automatically calculates the remaining quantity and adjusts collateral.</span>
+        </div>
+
+        <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 text-slate-600 space-y-1 text-[11px]">
+          <div class="font-bold text-slate-700">Automated Follow-up Actions:</div>
+          <div>✓ Creates an offsetting entry in WPS (DTB code = C).</div>
+          <div>✓ Generates the corresponding PDF confirmation & emails the counterparty.</div>
+          <div>✓ Updates the invoice file & SFTR reporting queue.</div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
+        <button data-on-click="close-modal" data-modal="lifecycle-modal" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">
+          Cancel
+        </button>
+        <button data-on-click="execute-lifecycle-action" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-md shadow-blue-600/20">
+          Execute action
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: MARGIN CALL OUTLOOK DISPATCHER -->
+  <div id="margin-call-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 flex flex-col gap-4">
+      <div class="flex justify-between items-center pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+            <i class="fas fa-envelope-open-text"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-slate-800 text-sm">Margin Call Email Dispatcher</h3>
+            <span id="margin-modal-cpty" class="text-xs text-slate-500">Counterparty: Demo</span>
+          </div>
+        </div>
+        <button data-on-click="close-modal" data-modal="margin-call-modal" class="text-slate-400 hover:text-slate-600">
+          <i class="fas fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-600 mb-1">Recipient (Email from Counterparty Reference Data):</label>
+          <input type="text" id="margin-email-to" class="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 font-mono font-medium" />
+        </div>
+        <div>
+          <label class="block font-bold text-slate-600 mb-1">Subject:</label>
+          <input type="text" id="margin-email-subject" class="w-full bg-slate-50 border border-slate-200 rounded p-2 text-slate-800 font-semibold" />
+        </div>
+        <div>
+          <label class="block font-bold text-slate-600 mb-1">Email Message (Preview):</label>
+          <textarea id="margin-email-body" rows="8" class="w-full bg-slate-50 border border-slate-200 rounded p-2.5 text-xs font-mono text-slate-800 leading-relaxed"></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center pt-3 border-t border-slate-100">
+        <button data-on-click="copy-margin-email-to-clipboard" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5">
+          <i class="fas fa-copy"></i> Copy to clipboard
+        </button>
+        <div class="flex gap-2">
+          <button data-on-click="close-modal" data-modal="margin-call-modal" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">
+            Close
+          </button>
+          <button data-on-click="open-in-outlook" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-md shadow-blue-600/20 flex items-center gap-1.5">
+            <i class="fas fa-paper-plane"></i> Open in Outlook & send
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+</body>
+</html>

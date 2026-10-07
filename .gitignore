@@ -1,0 +1,16 @@
+# macOS metadata
+.DS_Store
+._*
+
+# Local dependencies and generated output
+node_modules/
+coverage/
+*.log
+
+# Local credentials and editor settings
+.env
+.env.*
+!.env.example
+.aws/
+.vscode/
+.idea/
